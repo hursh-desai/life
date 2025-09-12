@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD || exit 1"
+}
+
