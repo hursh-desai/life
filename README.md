@@ -45,9 +45,15 @@ vercel
 
 ## Timeline interactions
 
+### Desktop
 - Hover for details: Labels are hidden by default; hover markers or bands to see a tooltip.
 - Zoom: Use mouse wheel/trackpad to zoom in/out centered on the cursor.
 - Pan: Click-drag horizontally to pan.
+
+### Mobile
+- Tap for details: Tap markers or bands to see a tooltip (tap elsewhere to dismiss).
+- Zoom: Use pinch gestures to zoom in/out, or tap the zoom buttons in the top-right corner.
+- Pan: Drag horizontally with one finger to pan across the timeline.
 - Today anchor: The dashed "Today" line has a subtle pulse for orientation.
 - Filters: Use the toggles above the canvas to show/hide Biological or Sociological layers.
 - Importance: Events can have `importance` 1–3; higher importance appears larger/stronger.

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { addYears, yearsBetween, fmt } from "@/lib/time";
 import { type EventPoint, type EventRange } from "@/lib/timeline/schema";
 
@@ -18,8 +18,11 @@ export function LifeTimelineCanvas({ birthDate, deathDate, today, items }: {
           <SvgTimeline birthDate={birthDate} deathDate={deathDate} today={today} items={items}/>
         </div>
       </div>
-      <div className="mt-3 text-xs text-slate-500 flex items-center gap-2">
-        <ChevronRight className="w-4 h-4"/> Hover markers/bands for details. Scroll horizontally if needed.
+      <div className="mt-3 text-xs text-slate-500 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-2">
+          <ChevronRight className="w-4 h-4"/> Tap markers/bands for details. Drag to pan, pinch to zoom.
+        </div>
+        <div className="sm:ml-auto text-slate-400">(Desktop: hover for details, mouse wheel to zoom, drag to pan)</div>
       </div>
     </div>
   );
@@ -38,6 +41,9 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
   const [hover, setHover] = useState<null | { x: number; y: number; item: PersonalizedItem }>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
+  const [lastTouchCenter, setLastTouchCenter] = useState<{x: number, y: number} | null>(null);
 
   const spanYears = yearsBetween(birthDate, deathDate);
 
@@ -98,13 +104,125 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
     window.addEventListener("mouseup", up);
   };
 
+  const getTouchDistance = (touches: TouchList) => {
+    if (touches.length < 2) return null;
+    const t1 = touches[0];
+    const t2 = touches[1];
+    return Math.sqrt(Math.pow(t2.clientX - t1.clientX, 2) + Math.pow(t2.clientY - t1.clientY, 2));
+  };
+
+  const getTouchCenter = (touches: TouchList) => {
+    if (touches.length < 2) return null;
+    const t1 = touches[0];
+    const t2 = touches[1];
+    return {
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2
+    };
+  };
+
+  const onTouchStart: React.TouchEventHandler<SVGSVGElement> = (e) => {
+    if (e.touches.length === 1) {
+      // Single touch - start pan
+      setIsDragging(true);
+      const touch = e.touches[0];
+      const rect = svgRef.current?.getBoundingClientRect();
+      const startX = touch.clientX - (rect?.left || 0);
+      const startTx = tx;
+      const move = (ev: TouchEvent) => {
+        if (ev.touches.length === 1) {
+          const touch = ev.touches[0];
+          const currentX = touch.clientX - (rect?.left || 0);
+          setTx(startTx + (currentX - startX));
+        }
+      };
+      const end = () => {
+        setIsDragging(false);
+        window.removeEventListener("touchmove", move);
+        window.removeEventListener("touchend", end);
+      };
+      window.addEventListener("touchmove", move, { passive: false });
+      window.addEventListener("touchend", end);
+    } else if (e.touches.length === 2) {
+      // Two touches - start pinch
+      e.preventDefault();
+      const distance = getTouchDistance(e.touches);
+      const center = getTouchCenter(e.touches);
+      if (distance && center) {
+        setLastTouchDistance(distance);
+        setLastTouchCenter(center);
+      }
+    }
+  };
+
+  const onTouchMove: React.TouchEventHandler<SVGSVGElement> = (e) => {
+    if (e.touches.length === 2 && lastTouchDistance && lastTouchCenter) {
+      e.preventDefault();
+      const newDistance = getTouchDistance(e.touches);
+      const newCenter = getTouchCenter(e.touches);
+      if (newDistance && newCenter) {
+        // Zoom
+        const factor = newDistance / lastTouchDistance;
+        const nextScale = Math.max(0.5, Math.min(6, scale * factor));
+        const k = nextScale / scale;
+
+        // Pan to keep the pinch center fixed
+        const rect = svgRef.current?.getBoundingClientRect();
+        if (rect) {
+          const centerX = newCenter.x - rect.left;
+          setTx(centerX - k * (centerX - tx));
+        }
+
+        setScale(nextScale);
+        setLastTouchDistance(newDistance);
+        setLastTouchCenter(newCenter);
+      }
+    }
+  };
+
+  const onTouchEnd: React.TouchEventHandler<SVGSVGElement> = (e) => {
+    if (e.touches.length === 0) {
+      setLastTouchDistance(null);
+      setLastTouchCenter(null);
+    }
+  };
+
+  const zoomIn = () => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    const centerX = rect ? rect.width / 2 : 0;
+    const factor = 1.2;
+    const next = Math.max(0.5, Math.min(6, scale * factor));
+    const k = next / scale;
+    setTx(centerX - k * (centerX - tx));
+    setScale(next);
+  };
+
+  const zoomOut = () => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    const centerX = rect ? rect.width / 2 : 0;
+    const factor = 1 / 1.2;
+    const next = Math.max(0.5, Math.min(6, scale * factor));
+    const k = next / scale;
+    setTx(centerX - k * (centerX - tx));
+    setScale(next);
+  };
+
   const axisX1 = PAD * scale + tx;
   const axisX2 = (WIDTH - PAD) * scale + tx;
 
   return (
-    <div className="w-full h-[300px]">
-      <svg ref={svgRef} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full h-[300px]" onWheel={onWheel} onMouseDown={onMouseDown}
-           onMouseLeave={() => setHover(null)}>
+    <div className="relative w-full h-[300px]">
+      <svg ref={svgRef} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full h-[300px] touch-none"
+           onWheel={onWheel} onMouseDown={onMouseDown}
+           onMouseLeave={() => setHover(null)}
+           onTouchStart={(e) => {
+             // Clear tooltip on touch if not on an interactive element
+             if (!isDragging) {
+               setHover(null);
+             }
+             onTouchStart(e);
+           }}
+           onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
         <line x1={axisX1} y1={TRACK_Y} x2={axisX2} y2={TRACK_Y} className="stroke-slate-300" strokeWidth={2} />
       {ticks.map((t, i) => (
         <g key={i} transform={`translate(${xForDate(t.date)}, ${TRACK_Y})`}>
@@ -135,7 +253,14 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
               <circle cx={0} cy={TRACK_Y} r={r} className={e.kind === "bio" ? "fill-emerald-500" : "fill-indigo-500"}
                       onMouseEnter={(ev)=>setHover({ x: ev.clientX, y: ev.clientY, item: e })}
                       onMouseMove={(ev)=>setHover({ x: ev.clientX, y: ev.clientY, item: e })}
-                      onMouseLeave={()=>setHover(null)} />
+                      onMouseLeave={()=>setHover(null)}
+                      onTouchStart={(ev)=> {
+                        ev.preventDefault();
+                        const rect = svgRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setHover({ x: ev.touches[0].clientX, y: ev.touches[0].clientY, item: e });
+                        }
+                      }} />
             </g>
           );
         } else {
@@ -154,7 +279,14 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
                     style={{ opacity }}
                     onMouseEnter={(ev)=>setHover({ x: ev.clientX, y: ev.clientY, item: e })}
                     onMouseMove={(ev)=>setHover({ x: ev.clientX, y: ev.clientY, item: e })}
-                    onMouseLeave={()=>setHover(null)} />
+                    onMouseLeave={()=>setHover(null)}
+                    onTouchStart={(ev)=> {
+                      ev.preventDefault();
+                      const rect = svgRef.current?.getBoundingClientRect();
+                      if (rect) {
+                        setHover({ x: ev.touches[0].clientX, y: ev.touches[0].clientY, item: e });
+                      }
+                    }} />
               <text x={(x1 + x2) / 2} y={y - (dir === -1 ? (height/2 + 4) : (height/2 + 4))} textAnchor="middle" className="text-[11px] fill-slate-700 font-medium">{e.label}</text>
             </g>
           );
@@ -171,6 +303,24 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
         <text x={60} y={36} className="text-[11px] fill-slate-700">Sociological</text>
       </g>
       </svg>
+
+      {/* Mobile zoom controls */}
+      <div className="md:hidden absolute top-2 right-2 flex flex-col gap-1">
+        <button
+          onClick={zoomIn}
+          className="bg-white/90 hover:bg-white border border-slate-300 rounded-full p-2 shadow-sm transition-colors"
+          aria-label="Zoom in"
+        >
+          <ZoomIn className="w-4 h-4 text-slate-700" />
+        </button>
+        <button
+          onClick={zoomOut}
+          className="bg-white/90 hover:bg-white border border-slate-300 rounded-full p-2 shadow-sm transition-colors"
+          aria-label="Zoom out"
+        >
+          <ZoomOut className="w-4 h-4 text-slate-700" />
+        </button>
+      </div>
 
       {hover && (
         <div style={{ position: "fixed", left: hover.x + 12, top: hover.y + 12, zIndex: 50 }}
