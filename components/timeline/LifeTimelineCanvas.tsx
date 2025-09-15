@@ -65,11 +65,19 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
   const rangeLanes = useMemo(() => {
     const lanes: { x1: number; x2: number; lane: number }[] = [];
     const map = new Map<number, number>();
+
+    // Inline xForDate calculation to avoid dependency issues
+    const getXForDate = (d: Date) => {
+      const age = yearsBetween(birthDate, d);
+      const base = PAD + (WIDTH - PAD * 2) * (age / spanYears);
+      return base * scale + tx;
+    };
+
     items.forEach((e, idx) => {
       const isPoint = (e as any).absolute instanceof Date;
       if (isPoint) return;
-      const x1 = xForDate((e as any).absolute.start);
-      const x2 = xForDate((e as any).absolute.end);
+      const x1 = getXForDate((e as any).absolute.start);
+      const x2 = getXForDate((e as any).absolute.end);
       const a = Math.min(x1, x2);
       const b = Math.max(x1, x2);
       let lane = 0;
@@ -78,7 +86,7 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
       map.set(idx, lane);
     });
     return map;
-  }, [items, scale, tx, birthDate, deathDate]);
+  }, [items, scale, tx, birthDate, spanYears]);
 
   const onWheel: React.WheelEventHandler<SVGSVGElement> = (e) => {
     e.preventDefault();
@@ -104,14 +112,14 @@ function SvgTimeline({ birthDate, deathDate, today, items }: {
     window.addEventListener("mouseup", up);
   };
 
-  const getTouchDistance = (touches: TouchList) => {
+  const getTouchDistance = (touches: React.TouchList) => {
     if (touches.length < 2) return null;
     const t1 = touches[0];
     const t2 = touches[1];
     return Math.sqrt(Math.pow(t2.clientX - t1.clientX, 2) + Math.pow(t2.clientY - t1.clientY, 2));
   };
 
-  const getTouchCenter = (touches: TouchList) => {
+  const getTouchCenter = (touches: React.TouchList) => {
     if (touches.length < 2) return null;
     const t1 = touches[0];
     const t2 = touches[1];
